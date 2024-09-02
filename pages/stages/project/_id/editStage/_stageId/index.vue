@@ -1,0 +1,204 @@
+<template>
+  <div>
+    <v-container>
+      <v-row justify="center">
+        <v-col max-width="100%">
+          <v-toolbar>
+            <v-btn flat nuxt :to="'/stages/project/' + this.$route.params.id">
+              <v-icon>mdi-arrow-left</v-icon>
+              Back to All stages
+            </v-btn>
+
+            <v-checkbox class="top-checkbox" label="First Level" @click="openNodes1"></v-checkbox>
+            <v-checkbox
+              class="top-checkbox"
+              v-if="getOpenNodes.length > 0"
+              label="Second Level"
+              @click="openNodes2"
+            ></v-checkbox>
+          </v-toolbar>
+          <v-card class="mx-auto" max-width="100%" flat>
+            <v-toolbar color="primary" dark class="mb-5">
+              <v-toolbar-title v-if="getSelectedStage && getSelectedStage.length > 0">
+                {{ getSelectedStage[0].title }} Checklist
+              </v-toolbar-title>
+              <v-toolbar-title v-else>Loading Checklist</v-toolbar-title>
+
+              <v-spacer></v-spacer>
+            </v-toolbar>
+            <v-treeview :open="getOpenNodes" width="auto" class="treeview" color="primary" :items="getSelectedStage">
+              <template v-slot:prepend="{ item }">
+                <v-checkbox
+                  v-if="!item.title"
+                  dense
+                  v-model="getDoneChecklistIds"
+                  :value="item.id"
+                  @click="checked(item)"
+                />
+                <v-checkbox
+                  v-else
+                  :disabled="!item.project_stage_count > 0"
+                  :indeterminate="!item.project_stage_count > 0"
+                  v-model="parent_checklist_ids"
+                  :value="item.id"
+                  @change="handleChildrenSelection(item)"
+                />
+              </template>
+
+              <template v-slot:label="{ item }">
+                <span v-if="item.title">{{ item.title }}</span>
+                <span v-if="item.description">{{ item.description }}</span>
+              </template>
+            </v-treeview>
+          </v-card>
+        </v-col>
+      </v-row>
+    </v-container>
+  </div>
+</template>
+
+<script>
+import { mapActions, mapGetters, mapState } from "vuex"
+
+export default {
+  layout: "dashboard-layout",
+  middleware: "auth",
+  data() {
+    return {
+      fields: {
+        project_checklist_id: "", // Array to store selected items
+        project_id: this.$route.params.id, // Array to store selected items
+        done: null // Array to store selected items
+      },
+      checklist_ids: [], // Array to store selected items
+      parent_checklist_ids: [],
+      project: [], // Array to store selected items
+      project_checklist: [] // Fetched from the API
+    }
+  },
+
+  methods: {
+    ...mapActions("projectChecklist", ["fetchProjectChecklist"]),
+    fetchProject() {
+      this.$axios
+        .get("project?project_id=" + this.$route.params.id)
+        .then((res) => {
+          this.project = res.data.data
+        })
+        .catch((error) => {
+          console.error("Error submitting form:", error)
+        })
+    },
+    submitChecklist() {
+      this.fields.project_id = this.$route.params.id
+
+      this.$axios
+        .post("checklist/store?", this.fields)
+        .then((response) => {})
+        .catch((error) => {
+          console.error("Error submitting form:", error)
+        })
+    },
+
+    handleChildrenSelection(Item) {
+      if (Item.children && Item.children.length > 0) {
+        Item.children.forEach((child) => {
+          // Update the selected state for each child
+          if (this.parent_checklist_ids.includes(Item.id)) {
+            // If the parent is selected, select the child
+            this.checklist_ids.push(child.id)
+          } else {
+            // If the parent is deselected, deselect the child
+            this.checklist_ids = this.checklist_ids.filter((id) => id !== child.id)
+          }
+
+          // Recursively handle children of the child
+          this.handleChildrenSelection(child)
+        })
+      }
+    },
+    checked(item) {
+      this.fields.project_checklist_id = item.id
+      if (this.getDoneChecklistIds.includes(item.id)) {
+        this.fields.done = false
+      } else {
+        this.fields.done = true
+      }
+      this.$store.dispatch("projectChecklist/changeDone", item.id)
+      this.$axios
+        .post("project-checklist/update", this.fields)
+        .then((response) => {})
+        .catch((error) => {
+          console.error("Error submitting form:", error)
+        })
+    },
+    openNodes1() {
+      this.$store.dispatch(
+        "projectChecklist/openNodes1",
+        [1, 11, 2, 12, 3, 13, 4, 14, 5, 15, 6, 16, 7, 17, 8, 18, 9, 19, 10]
+      )
+    },
+    extractProjectChecklistIds(data) {
+      const checklistIds = []
+
+      data.forEach((item) => {
+        if (item.hasOwnProperty("project_checklists") && Array.isArray(item.children)) {
+          item.children.forEach((checklist) => {
+            if (checklist.hasOwnProperty("id")) {
+              checklistIds.push(checklist.id)
+            }
+
+            // Check if the checklist has children
+            if (checklist.hasOwnProperty("children") && Array.isArray(checklist.children)) {
+              checklist.children.forEach((child) => {
+                if (child.hasOwnProperty("id")) {
+                  checklistIds.push(child.id)
+                }
+              })
+            }
+          })
+        }
+      })
+
+      return checklistIds
+    },
+    openNodes2() {
+      const opened_ids = this.extractProjectChecklistIds(this.getProjectChecklist)
+      this.$store.dispatch("projectChecklist/openNodes2", opened_ids)
+    },
+    getStageLink(item) {
+      // Assuming you have the project ID stored in the route parameters
+      const projectId = this.$route.params.id
+      return `/stages/project/${projectId}/editStage/${item.id}`
+    }
+  },
+  computed: {
+    ...mapGetters("projectChecklist", [
+      "getProjectChecklist",
+      "getDoneChecklistIds",
+      "getSelectedStage",
+      "getOpenNodes"
+    ])
+  },
+  mounted() {
+    this.fetchProjectChecklist({
+      project_id: this.$route.params.id,
+      stage_id: this.$route.params.stageId
+    })
+    // this.checklist_ids = this.getDoneChecklistIds;
+  }
+}
+</script>
+<style lang="scss">
+.v-treeview-node__content {
+  min-height: 20px;
+  height: 35px;
+}
+.v-treeview-node__root {
+  width: fit-content;
+}
+.top-checkbox {
+  margin-top: 24px !important;
+  margin-left: 11px !important;
+}
+</style>
